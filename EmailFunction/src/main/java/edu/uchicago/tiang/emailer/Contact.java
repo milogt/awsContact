@@ -1,18 +1,18 @@
 package edu.uchicago.tiang.emailer;
 
-public class Message {
+public class Contact {
 
     private String subject;
     private String body;
     private String emailFrom;
 
-    public Message(String subject, String body, String emailFrom) {
+    public Contact(String subject, String body, String emailFrom) {
         this.subject = subject;
         this.body = body;
         this.emailFrom = emailFrom;
     }
 
-    public Message() {
+    public Contact() {
     }
 
     public String getSubject() {

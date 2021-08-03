@@ -1,22 +1,33 @@
 package edu.uchicago.tiang.emailer;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import com.amazonaws.services.simpleemail.model.Content;
+import com.amazonaws.services.simpleemail.model.Destination;
+import com.amazonaws.services.simpleemail.model.SendEmailRequest;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.json.JSONObject;
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.simpleemail.AmazonSimpleEmailService;
+import com.amazonaws.services.simpleemail.AmazonSimpleEmailServiceClientBuilder;
+import com.amazonaws.services.simpleemail.model.Body;
+import com.amazonaws.services.simpleemail.model.Message;
 
 /**
  * Handler for requests to Lambda function.
  */
 public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
+
+    private final ObjectMapper objectMapper= new ObjectMapper();
+    public final String emailTo = "tiang@uchicago.edu";
 
     public APIGatewayProxyResponseEvent handleRequest(final APIGatewayProxyRequestEvent input, final Context context) {
         Map<String, String> headers = new HashMap<>();
@@ -25,24 +36,48 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
 
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
                 .withHeaders(headers);
+        Contact contact = null;
         try {
-            final String pageContents = this.getPageContents("https://checkip.amazonaws.com");
-            String output = String.format("{ \"message\": \"hello world\", \"location\": \"%s\" }", pageContents);
-
+            contact = objectMapper.readValue(input.getBody(), Contact.class);
+        } catch (JsonProcessingException e) {
             return response
-                    .withStatusCode(200)
-                    .withBody(output);
-        } catch (IOException e) {
-            return response
-                    .withBody("{}")
-                    .withStatusCode(500);
+                    .withBody(String.format("{%s}", e.getMessage()))
+                    .withStatusCode(400);
         }
+
+        AmazonSimpleEmailService client = AmazonSimpleEmailServiceClientBuilder
+                .standard()
+                .withRegion(Regions.US_EAST_1).build();
+
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("subject", contact.getSubject());
+        jsonObject.put("body", contact.getBody());
+        jsonObject.put("emailFrom", contact.getEmailFrom());
+
+        List<String> recipients = new ArrayList<>();
+        recipients.add(contact.getEmailFrom());
+
+        SendEmailRequest request = new SendEmailRequest()
+                .withDestination(
+                        new Destination().withToAddresses(emailTo))
+                .withMessage(new Message()
+                        .withBody(new Body()
+                                .withText(new Content().withCharset("UTF-8").withData(contact.getBody())))
+                        .withSubject(new Content()
+                                .withCharset("UTF-8").withData(contact.getSubject())))
+                .withSource(emailTo)
+                .withReplyToAddresses(recipients);
+        try {
+            client.sendEmail(request);
+        } catch (Exception exception) {
+//            System.out.println("The email was not sent. Error message: " + exception.getMessage());
+            jsonObject.put("error", "The email was not sent. Error message: " + exception.getMessage());
+        }
+
+        return response
+                .withStatusCode(200)
+                .withBody(jsonObject.toString());
+
     }
 
-    private String getPageContents(String address) throws IOException{
-        URL url = new URL(address);
-        try(BufferedReader br = new BufferedReader(new InputStreamReader(url.openStream()))) {
-            return br.lines().collect(Collectors.joining(System.lineSeparator()));
-        }
-    }
 }
